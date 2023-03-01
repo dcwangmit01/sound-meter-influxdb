@@ -1,0 +1,8 @@
+.env
+.env.json
+.venv/
+measurements/
+volumes/grafana/etc/grafana/provisioning/datasources/influxdb2.yaml
+volumes/grafana/var/
+volumes/influxdb2/
+volumes/telegraf/etc/telegraf/telegraf.conf
