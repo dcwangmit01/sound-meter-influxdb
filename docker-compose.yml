@@ -1,0 +1,47 @@
+version: '3'
+services:
+
+  influxdb2:
+    hostname: influxdb2
+    # https://hub.docker.com/_/influxdb
+    image: "influxdb:2.6"
+    volumes:
+      # Mount for influxdb data directory
+      - ./volumes/influxdb2/var/lib/influxdb2/:/var/lib/influxdb2/
+      # Mount for influxdb configuration
+      - ./volumes/influxdb2/etc/influxdb/:/etc/influxdb/
+    ports:
+      # The API for InfluxDB is served on port 8086
+      - "8086:8086"
+
+  telegraf:
+    hostname: telegraf
+    # https://hub.docker.com/_/telegraf
+    image: "telegraf:1.25"
+    volumes:
+      # Mount for telegraf configuration
+      - ./volumes/telegraf/etc/telegraf/:/etc/telegraf/
+      - ./measurements:/measurements/
+    links:
+      - influxdb2
+    depends_on:
+      - influxdb2
+    environment:
+      - INFLUX_TOKEN=${INFLUX_TOKEN}
+
+  grafana:
+    hostname: grafana
+    # https://hub.docker.com/r/grafana/grafana
+    image: "grafana/grafana:9.3.6"
+    volumes:
+      # Mount for grafana configuration
+      - ./volumes/grafana/etc/grafana/:/etc/grafana/
+      - ./volumes/grafana/var/lib/grafana/:/var/lib/grafana/
+    environment:
+      - GF_INSTALL_PLUGINS=marcusolsson-hourly-heatmap-panel
+    links:
+      - influxdb2
+    depends_on:
+      - influxdb2
+    ports:
+      - "3000:3000"
