@@ -47,3 +47,4 @@ services:
       - influxdb2
     ports:
       - "3000:3000"
+    user: "0"
