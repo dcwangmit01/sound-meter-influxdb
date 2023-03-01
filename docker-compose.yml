@@ -27,7 +27,7 @@ services:
     depends_on:
       - influxdb2
     environment:
-      - INFLUX_TOKEN=${INFLUX_TOKEN}
+      - INFLUX_TOKEN=${INFLUXDB2_TOKEN}
 
   grafana:
     hostname: grafana
@@ -38,6 +38,8 @@ services:
       - ./volumes/grafana/etc/grafana/:/etc/grafana/
       - ./volumes/grafana/var/lib/grafana/:/var/lib/grafana/
     environment:
+      - GF_SECURITY_ADMIN_USER=${INFLUXDB2_USERNAME}
+      - GF_SECURITY_ADMIN_PASSWORD=${INFLUXDB2_PASSWORD}
       - GF_INSTALL_PLUGINS=marcusolsson-hourly-heatmap-panel
     links:
       - influxdb2
