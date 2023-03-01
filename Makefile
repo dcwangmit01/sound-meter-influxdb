@@ -2,7 +2,7 @@
 
 SHELL := /usr/bin/env bash
 
-# deps: jq, makefile
+# deps: jq, jinja2, Makefile
 .venv:
 	python -m venv .venv
 	source .venv/bin/activate && \
@@ -26,6 +26,8 @@ bootstrap-env: .env
 	echo "INFLUXDB2_BUCKET=microphone" >> .env
 	echo "INFLUXDB2_RETENTION=0" >> .env
 	echo "INFLUXDB2_TOKEN=$$(openssl rand -hex 16)" >> .env
+	@# Generate a yaml version of the same file for Jinja2 templating
+	jq -nR '[inputs | split("=") | {(.[0]): .[1]}] | add' .env > .env.json
 
 bootstrap-influxdb2: bootstrap-env  ## Bootstrap Influxdb2 configuration
 	docker-compose up -d --wait influxdb2
@@ -45,14 +47,17 @@ bootstrap-telegraf:
 bootstrap-grafana:
 	mkdir -p volumes/grafana/etc/grafana/provisioning/datasources
 	mkdir -p volumes/grafana/etc/grafana/provisioning/plugins
-	mkdir -p volumes/grafana/etc/grafana/provisioning/notifier
+	mkdir -p volumes/grafana/etc/grafana/provisioning/notifiers
 	mkdir -p volumes/grafana/etc/grafana/provisioning/alerting
-	mkdir -p volumes/grafana/etc/grafana/provisioning/dashboars
+	mkdir -p volumes/grafana/etc/grafana/provisioning/dashboards
 	docker-compose up -d --wait grafana
+
+config:  ## Generate all configuration files
+	find ./ -name '*.j2' | sed 's/\.[^.]*$$//' | awk '{print "jinja2 --format json " $$1 ".j2 .env.json > " $$1}' | sh
 
 .PHONY: run
 run:  # start all services
-run: bootstrap-influxdb2 bootstrap-telegraf bootstrap-grafana
+run: config bootstrap-influxdb2 bootstrap-telegraf bootstrap-grafana
 
 .PHONY: clean
 clean:  ## Clean all temporary files
@@ -65,7 +70,7 @@ mrclean: clean
 	docker-compose rm -f
 	rm -rf ./volumes/influxdb2/*
 	rm -rf ./volumes/grafana/var/lib/grafana/*
-	rm -f .env
+	rm -f .env .env.json
 
 help:  ## Print list of Makefile targets
 	@# Taken from https://github.com/spf13/hugo/blob/master/Makefile
