@@ -87,10 +87,10 @@
   token = "$INFLUX_TOKEN"
 
   ## Organization is the name of the organization you wish to write to; must exist.
-  organization = "sound"
+  organization = "{{ INFLUXDB2_ORG }}"
 
   ## Destination bucket to write into.
-  bucket = "microphone"
+  bucket = "{{ INFLUXDB2_BUCKET }}"
 
   ## The value of this tag will be used to determine the bucket.  If this
   ## tag is not set the 'bucket' option is used as the default.
