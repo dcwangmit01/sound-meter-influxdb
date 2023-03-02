@@ -2,17 +2,22 @@
 
 SHELL := /usr/bin/env bash
 
+check:  ## Dependencies
+	@if ! which jq 2>&1 > /dev/null; then \
+	  echo "Please install jq"; \
+	fi
+
 .venv:
-	python -m venv .venv
+	python3 -m venv .venv
 	source .venv/bin/activate && \
-	  pip install flake8 black pipreqs jinja2 cython && \
+	  pip install flake8 black pipreqs jinja2-cli cython && \
 	  pipreqs ./ --ignore .venv --force && \
 	  pip install -r requirements.txt
 
 .PHONY: deps
 deps: .venv  ## Install Dependencies
 
-.env: deps
+.env:
 	echo "INFLUXDB2_USERNAME=admin" > .env
 	echo "INFLUXDB2_PASSWORD=$$(openssl rand -hex 16)" >> .env
 	echo "INFLUXDB2_ORG=sound" >> .env
@@ -23,6 +28,7 @@ deps: .venv  ## Install Dependencies
 	jq -nR '[inputs | split("=") | {(.[0]): .[1]}] | add' .env > .env.json
 
 config: .env  ## Generate all configuration files
+	source .venv/bin/activate && \
 	find ./ -name '*.j2' | sed 's/\.[^.]*$$//' | \
 	  awk '{print "jinja2 --format json " $$1 ".j2 .env.json > " $$1}' | sh
 
@@ -34,17 +40,17 @@ format:  ## Auto-format and check pep8
 
 
 bootstrap:  ## Create initial configurations for all services
-bootstrap: bootstrap-influxdb2 bootstrap-grafana
+bootstrap: deps config bootstrap-influxdb2 bootstrap-grafana
 
-bootstrap-influxdb2: config
-	docker-compose up -d --wait influxdb2
+bootstrap-influxdb2:
+	docker compose up -d influxdb2
 	@# Wait for influxdb2 to become ready
-	@while ! docker-compose exec -it influxdb2 influx ping 2>&1 | grep -v Error; do \
+	while ! docker compose exec -it influxdb2 influx ping 2>&1 | grep -v Error; do \
 	  sleep 1; \
 	done
 	@# Initiate the one time setup.  Error silently if already configured
-	@source .env && \
-	  docker-compose exec -it influxdb2 influx setup \
+	source .env && \
+	  docker compose exec -it influxdb2 influx setup \
 	    --username "$$INFLUXDB2_USERNAME" \
 	    --password "$$INFLUXDB2_PASSWORD" \
 	    --org "$$INFLUXDB2_ORG" \
@@ -64,15 +70,21 @@ bootstrap-grafana:
 
 .PHONY: run
 run:  # Start all services
-run: config bootstrap-influxdb2 bootstrap-grafana
-	docker-compose up -d --wait
+run: deps config bootstrap
+	docker compose up -d
+
+run-logger:
+	sudo chmod a+rw /dev/serial/by-id/usb-Convergence*
+	source .venv/bin/activate && \
+	  python3 nsrt-mk3-dev-logger.py
 
 .PHONY: clean
 clean:  ## Clean all temporary files
 clean:
 	@# Stop the containers
-	docker-compose stop || true
-	docker-compose rm -f || true
+	docker compose stop || true
+	docker compose rm -f || true
+	docker network prune --force
 
 	@# Remove Jinja generated files
 	find ./ -name '*.j2' | sed 's/\.[^.]*$$//' | xargs rm -f

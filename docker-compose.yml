@@ -1,6 +1,16 @@
 version: '3'
 services:
 
+  busybox:
+    hostname: busybox
+    image: "busybox:latest"
+    restart: always
+    command: sh -c "while true; do date; sleep 60; done"
+    links:
+      - influxdb2
+    networks:
+      - default
+
   influxdb2:
     hostname: influxdb2
     # https://hub.docker.com/_/influxdb
@@ -14,6 +24,8 @@ services:
       # The API for InfluxDB is served on port 8086
       - "8086:8086"
     restart: always
+    networks:
+      - default
 
   telegraf:
     hostname: telegraf
@@ -30,6 +42,8 @@ services:
     environment:
       - INFLUX_TOKEN=${INFLUXDB2_TOKEN}
     restart: always
+    networks:
+      - default
 
   grafana:
     hostname: grafana
@@ -51,3 +65,19 @@ services:
       - "3000:3000"
     user: "0"
     restart: always
+    networks:
+      - default
+
+# "docker compose" on my ubuntu 20.04 seems to not declare default options.
+#   This is needed... unclear why
+networks:
+  default:
+    driver: bridge
+    driver_opts:
+      com.docker.network.driver.mtu: "1450"
+      com.docker.network.bridge.default_bridge: "true"
+      com.docker.network.bridge.enable_icc: "true"
+      com.docker.network.bridge.enable_ip_masquerade: "true"
+      com.docker.network.bridge.host_binding_ipv4: "0.0.0.0"
+      com.docker.network.bridge.name: "docker0"
+      com.docker.network.driver.mtu: "1500"
