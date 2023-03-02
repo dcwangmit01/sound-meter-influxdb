@@ -2,24 +2,17 @@
 
 SHELL := /usr/bin/env bash
 
-# deps: jq, jinja2, Makefile
 .venv:
 	python -m venv .venv
 	source .venv/bin/activate && \
-	  pip install flake8 yapf pipreqs
+	  pip install flake8 black pipreqs jinja2 cython && \
+	  pipreqs ./ --ignore .venv --force && \
+	  pip install -r requirements.txt
 
 .PHONY: deps
 deps: .venv  ## Install Dependencies
-	@# no-op
 
-.PHONY: format
-format:  ## Auto-format and check pep8
-	@source .venv/bin/activate && \
-	  yapf -i *.py && \
-	  flake8 *.py
-
-bootstrap-env: .env
-.env:
+.env: deps
 	echo "INFLUXDB2_USERNAME=admin" > .env
 	echo "INFLUXDB2_PASSWORD=$$(openssl rand -hex 16)" >> .env
 	echo "INFLUXDB2_ORG=sound" >> .env
@@ -29,20 +22,37 @@ bootstrap-env: .env
 	@# Generate a yaml version of the same file for Jinja2 templating
 	jq -nR '[inputs | split("=") | {(.[0]): .[1]}] | add' .env > .env.json
 
-bootstrap-influxdb2: bootstrap-env  ## Bootstrap Influxdb2 configuration
-	docker-compose up -d --wait influxdb2
-	source .env && \
-	docker-compose exec -it influxdb2 influx setup \
-	  --username "$$INFLUXDB2_USERNAME" \
-	  --password "$$INFLUXDB2_PASSWORD" \
-	  --org "$$INFLUXDB2_ORG" \
-	  --bucket "$$INFLUXDB2_BUCKET" \
-	  --retention "$$INFLUXDB2_RETENTION" \
-	  --token "$$INFLUXDB2_TOKEN" \
-	  --force
+config: .env  ## Generate all configuration files
+	find ./ -name '*.j2' | sed 's/\.[^.]*$$//' | \
+	  awk '{print "jinja2 --format json " $$1 ".j2 .env.json > " $$1}' | sh
 
-bootstrap-telegraf:
-	docker-compose up -d --wait telegraf
+.PHONY: format
+format:  ## Auto-format and check pep8
+	@source .venv/bin/activate && \
+	  black --line-length 79 *.py && \
+	  flake8 *.py
+
+
+bootstrap:  ## Create initial configurations for all services
+bootstrap: bootstrap-influxdb2 bootstrap-grafana
+
+bootstrap-influxdb2: config
+	docker-compose up -d --wait influxdb2
+	@# Wait for influxdb2 to become ready
+	@while ! docker-compose exec -it influxdb2 influx ping 2>&1 | grep -v Error; do \
+	  sleep 1; \
+	done
+	@# Initiate the one time setup.  Error silently if already configured
+	@source .env && \
+	  docker-compose exec -it influxdb2 influx setup \
+	    --username "$$INFLUXDB2_USERNAME" \
+	    --password "$$INFLUXDB2_PASSWORD" \
+	    --org "$$INFLUXDB2_ORG" \
+	    --bucket "$$INFLUXDB2_BUCKET" \
+	    --retention "$$INFLUXDB2_RETENTION" \
+	    --token "$$INFLUXDB2_TOKEN" \
+	    --force \
+	    2>&1 | grep -v Error || true # do not return error if already set up
 
 bootstrap-grafana:
 	mkdir -p volumes/grafana/etc/grafana/provisioning/datasources
@@ -50,24 +60,26 @@ bootstrap-grafana:
 	mkdir -p volumes/grafana/etc/grafana/provisioning/notifiers
 	mkdir -p volumes/grafana/etc/grafana/provisioning/alerting
 	mkdir -p volumes/grafana/etc/grafana/provisioning/dashboards
-	docker-compose up -d --wait grafana
 
-config:  ## Generate all configuration files
-	find ./ -name '*.j2' | sed 's/\.[^.]*$$//' | awk '{print "jinja2 --format json " $$1 ".j2 .env.json > " $$1}' | sh
 
 .PHONY: run
-run:  # start all services
-run: config bootstrap-influxdb2 bootstrap-telegraf bootstrap-grafana
+run:  # Start all services
+run: config bootstrap-influxdb2 bootstrap-grafana
+	docker-compose up -d --wait
 
 .PHONY: clean
 clean:  ## Clean all temporary files
 clean:
-	rm -rf .venv
+	@# Stop the containers
+	docker-compose stop || true
+	docker-compose rm -f || true
+
+	@# Remove Jinja generated files
+	find ./ -name '*.j2' | sed 's/\.[^.]*$$//' | xargs rm -f
 
 .PHONY: mrclean
 mrclean: clean
-	docker-compose stop
-	docker-compose rm -f
+	rm -rf .venv
 	rm -rf ./volumes/influxdb2/*
 	rm -rf ./volumes/grafana/var/lib/grafana/*
 	rm -f .env .env.json
