@@ -9,12 +9,22 @@ services:
     links:
       - influxdb2
     networks:
-      - default
+      - sound_meter
+
+  nsrt-mk3-dev-logger:
+    hostname: nsrt-mk3-dev-logger
+    image: "dcwangmit01/nsrt-mk3-dev-logger:0.3.0"
+    restart: always
+    devices:
+      - ${LOCAL_NSRT_DEVICE}
+    volumes:
+      # Mount for data directory
+      - ./volumes/nsrt-mk3-dev-logger/measurements/:/measurements/
 
   influxdb2:
     hostname: influxdb2
     # https://hub.docker.com/_/influxdb
-    image: "influxdb:2.6"
+    image: "influxdb:2.7"
     volumes:
       # Mount for influxdb data directory
       - ./volumes/influxdb2/var/lib/influxdb2/:/var/lib/influxdb2/
@@ -25,16 +35,16 @@ services:
       - "8086:8086"
     restart: always
     networks:
-      - default
+      - sound_meter
 
   telegraf:
     hostname: telegraf
     # https://hub.docker.com/_/telegraf
-    image: "telegraf:1.25"
+    image: "telegraf:1.27"
     volumes:
       # Mount for telegraf configuration
       - ./volumes/telegraf/etc/telegraf/:/etc/telegraf/
-      - ./measurements:/measurements/
+      - ./volumes/nsrt-mk3-dev-logger/measurements/:/measurements/
     links:
       - influxdb2
     depends_on:
@@ -43,12 +53,12 @@ services:
       - INFLUX_TOKEN=${INFLUXDB2_TOKEN}
     restart: always
     networks:
-      - default
+      - sound_meter
 
   grafana:
     hostname: grafana
     # https://hub.docker.com/r/grafana/grafana
-    image: "grafana/grafana:9.3.6"
+    image: "grafana/grafana:9.5.3"
     volumes:
       # Mount for grafana configuration
       - ./volumes/grafana/etc/grafana/:/etc/grafana/
@@ -66,18 +76,41 @@ services:
     user: "0"
     restart: always
     networks:
-      - default
+      - sound_meter
 
-# "docker compose" on my ubuntu 20.04 seems to not declare default options.
-#   This is needed... unclear why
+  nginx:
+    container_name: nginx
+    image: nginx:alpine
+    networks:
+      - sound_meter
+    volumes:
+      - ./conf/nginx/htpasswd:/etc/nginx/htpasswd:ro
+      - ./conf/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./conf/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./conf/nginx/sites-enabled:/etc/nginx/sites-enabled:ro
+      - ./volumes/certbot/conf:/etc/letsencrypt
+      - ./volumes/certbot/www:/var/www/certbot
+      - ./volumes/nginx/web:/var/www
+    ports:
+      - 80:80
+      - 443:443
+    restart: always
+    command: /bin/sh -c "while :; do sleep 24h & wait $${!}; nginx -s reload; done & nginx -g 'daemon off;'"
+    depends_on:
+      - grafana
+
+  certbot:
+    container_name: certbot
+    image: certbot/certbot
+    entrypoint: /bin/sh -c "trap exit TERM; while :; do certbot renew --webroot --webroot-path /var/www/certbot; sleep 12h & wait $${!}; done;"
+    networks:
+      - sound_meter
+    volumes:
+      - ./volumes/certbot/conf:/etc/letsencrypt
+      - ./volumes/certbot/www:/var/www/certbot
+    restart: always
+    depends_on:
+      - nginx
+
 networks:
-  default:
-    driver: bridge
-    driver_opts:
-      com.docker.network.driver.mtu: "1450"
-      com.docker.network.bridge.default_bridge: "true"
-      com.docker.network.bridge.enable_icc: "true"
-      com.docker.network.bridge.enable_ip_masquerade: "true"
-      com.docker.network.bridge.host_binding_ipv4: "0.0.0.0"
-      com.docker.network.bridge.name: "docker0"
-      com.docker.network.driver.mtu: "1500"
+  sound_meter:

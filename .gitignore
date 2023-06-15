@@ -1,7 +1,12 @@
 .env
-.env.json
+.env.yaml
 .venv/
+conf/nginx/htpasswd
+conf/nginx/sites-enabled/sites.conf
+config.yaml
+config.yaml.private
 measurements/
+volumes/certbot/
 volumes/grafana/etc/grafana/provisioning/datasources/influxdb2.yaml
 volumes/grafana/var/
 volumes/influxdb2/
